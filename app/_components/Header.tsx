@@ -44,7 +44,7 @@ function Header() {
       {!user? <SignInButton mode='modal'>
         <Button>Get Started</Button>
       </SignInButton>:
-      <Link href={'/create-trip'}>
+      <Link href={'/create-new-trip'}>
       <Button>Create New Trip</Button>
       </Link>}
     </div>

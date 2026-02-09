@@ -36,6 +36,7 @@ function Hero() {
             return;
         }
         //Navigate to Create Trip Planner Web screen
+        router.push('/create-new-trip');
     }
 
   return (
