@@ -1,53 +1,106 @@
 import { NextRequest, NextResponse } from "next/server";
-import OpenAI from 'openai';
+import OpenAI from "openai";
 
-export const openai = new OpenAI({
-  baseURL: 'https://openrouter.ai/api/v1',
+const openai = new OpenAI({
+  baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPEN_ROUTER_API_KEY,
 });
 
-const PROMPT =`You are an AI Trip Planner Agent. Your goal is to help the user plan a trip by **asking one relevant trip-related question at a time**.
+const PROMPT = `
+You are an AI Trip Planner Agent. Your goal is to help the user plan a trip by asking ONE relevant trip-related question at a time.
 
- Only ask questions about the following details in order, and wait for the user’s answer before asking the next: 
+Collect information in this order:
+1. Starting location
+2. Destination
+3. Group Size (Solo, Couple, Family, Friends)
+4. Budget (Low, Medium, High)
+5. Trip Duration (Days)
+6. Travel Interests
+7. Special Preferences
 
-1. Starting location (source) 
-2. Destination city or country 
-3. Group size (Solo, Couple, Family, Friends) 
-4. Budget (Low, Medium, High) 
-5. Trip duration (number of days) 
-6. Travel interests (e.g., adventure, sightseeing, cultural, food, nightlife, relaxation) 
-7. Special requirements or preferences (if any)
-Do not ask multiple questions at once, and never ask irrelevant questions.
-If any answer is missing or unclear, politely ask the user to clarify before proceeding.
-Always maintain a conversational, interactive style while asking questions.
-Along wth response also send which ui component to display for generative UI for example 'budget/groupSize/TripDuration/Final) , where Final means AI generating complete final outpur
-Once all required information is collected, generate and return a **strict JSON response only** (no explanations or extra text) with following JSON schema:
+Rules:
+- Ask ONLY one question at a time
+- Stay conversational
+- If something is unclear → ask clarification
+
+IMPORTANT:
+Return ONLY strict JSON (no markdown, no explanation)
+
+Schema:
 {
-resp:'Text Resp',
-ui:'budget/groupSize/TripDuration/Final)'
+  "resp": "Text response",
+  "ui": "budget/groupSize/TripDuration/Final"
 }
-`
+`;
 
 export async function POST(req: NextRequest) {
-    const { messages } = await req.json();
+  try {
+    const body = await req.json();
+    const messages = body?.messages || [];
 
-    try{
+    if (!process.env.OPEN_ROUTER_API_KEY) {
+      throw new Error("Missing OPEN_ROUTER_API_KEY");
+    }
+
     const completion = await openai.chat.completions.create({
-        model: 'openai/gpt-4.1-mini',
-        response_format: { type: 'json_object' },
-        messages: [
-            {
-                role: 'system',
-                content:`PROMPT`
-            },
-            ...messages
-        ],
+      model: "google/gemma-3n-e2b-it:free",
+      temperature: 0.3,
+      messages: [
+        {
+          role: "system",
+          content: PROMPT,
+        },
+        ...messages,
+      ],
+    });
+
+    const raw =
+      completion?.choices?.[0]?.message?.content || "";
+
+    console.log("RAW MODEL OUTPUT:", raw);
+
+    if (!raw) {
+      return NextResponse.json({
+        resp: "Sorry, I couldn't generate a response.",
+        ui: "Final",
       });
-    console.log(completion.choices[0].message);
-    const message = completion.choices[0].message;
-    return NextResponse.json(JSON.parse(message.content ?? ''));
+    }
+
+    // Clean markdown JSON if model adds ```
+    const cleaned = raw
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .trim();
+
+    let parsed;
+
+    try {
+      parsed = JSON.parse(cleaned);
+    } catch {
+      // If model breaks JSON → fallback safely
+      parsed = {
+        resp: cleaned,
+        ui: "Final",
+      };
+    }
+
+    return NextResponse.json(parsed);
+  } catch (error: any) {
+  console.error("🔥 FULL ERROR OBJECT:");
+  console.error(error);
+
+  console.error("🔥 RESPONSE:");
+  console.error(error?.response?.data);
+
+  return NextResponse.json(
+    {
+      resp: "Server error",
+      ui: "Final",
+      error: error?.message,
+      providerError: error?.response?.data
+    },
+    { status: 500 }
+  );
 }
-catch(e) {
-    return NextResponse.json(e);
-}
+
 }
